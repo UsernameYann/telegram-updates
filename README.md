@@ -1,2 +1,2 @@
-# sunflower-land-daily-updates
-🌻 Daily digest of Sunflower Land updates sent to Telegram via GitHub Actions
+# SFL Telegram Updates
+Digest Telegram automatique des PR mergees de Sunflower Land, genere toutes les 8h par GitHub Actions.
