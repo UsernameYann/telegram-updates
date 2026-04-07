@@ -1,0 +1,28 @@
+name: 🌻 Sunflower Land Daily Digest
+
+on:
+  schedule:
+    - cron: '0 6,14,22 * * *'
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      models: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: pip install requests --quiet
+
+      - name: Run digest
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGEST_MODEL: gpt-4o
+          DIGEST_WINDOW_HOURS: 8
+        run: python3 scripts/digest.py
