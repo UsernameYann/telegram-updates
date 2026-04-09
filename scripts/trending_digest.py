@@ -6,7 +6,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import requests
 
@@ -141,7 +141,7 @@ def fetch_github_trending(since: str = "daily") -> List[str]:
     return []
 
 
-def safe_get(url: str, params: Dict = None, retries: int = 2) -> Any:
+def safe_get(url: str, params: Optional[Dict] = None, retries: int = 2) -> Any:
     for attempt in range(retries + 1):
         try:
             resp = requests.get(url, headers=GH_HEADERS, params=params, timeout=REQUEST_TIMEOUT)
@@ -191,7 +191,7 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
 
     system_prompt = (
         "Tu es un créateur de posts X pour un compte de curation GitHub en français.\n"
-        "Format strict — 3 lignes :\n"
+        "Format strict — 4 lignes :\n"
         "Ligne 1 : [emoji] owner/repo\n"
         "Ligne 2 : accroche forte (max 10-12 mots)\n"
         "Ligne 3 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
