@@ -157,7 +157,7 @@ seen_ids = load_seen_ids()
 print(f"IDs déjà vus: {len(seen_ids)}")
 
 starred_raw = safe_get(
-    f"https://api.github.com/users/{GH_USERNAME}/starred?sort=created&direction=desc&per_page=30",
+    "https://api.github.com/user/starred?sort=created&direction=desc&per_page=30",
     GH_HEADERS,
     [],
 )
