@@ -123,16 +123,34 @@ def fetch_github_trending(since: str = "daily") -> List[str]:
     """Scrape github.com/trending et retourne une liste de 'owner/repo' triée par stars aujourd'hui."""
     url = f"https://github.com/trending?since={since}"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; trending-digest-bot/1.0)"}
+    # Préfixes GitHub à exclure (pas des repos)
+    excluded = {
+        "trending", "sponsors", "apps", "features", "about", "login", "join",
+        "marketplace", "topics", "collections", "orgs", "users", "settings",
+        "resources", "solutions", "enterprise", "pricing", "contact", "security",
+        "open-source", "readme", "discussions", "pulls", "issues", "codespaces",
+        "packages", "actions", "projects", "wiki", "explore", "new", "search",
+    }
     for attempt in range(2):
         try:
             resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
             if resp.status_code != 200:
                 print(f"Trending page: {resp.status_code}")
                 return []
-            # Extrait les liens /owner/repo dans les balises h2 de trending
-            matches = re.findall(r'class="h3 lh-condensed">\s*<a href="/([^/"]+/[^/"]+)"', resp.text)
-            print(f"Trending scraped: {len(matches)} repos")
-            return matches[:25]
+            # Extrait tous les liens /owner/repo (format alphanum + tirets/points)
+            raw = re.findall(r'href="/([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)"', resp.text)
+            seen_slugs: set = set()
+            results = []
+            for slug in raw:
+                owner = slug.split("/")[0].lower()
+                if owner in excluded or slug in seen_slugs:
+                    continue
+                seen_slugs.add(slug)
+                results.append(slug)
+                if len(results) >= 25:
+                    break
+            print(f"Trending scraped: {len(results)} repos")
+            return results
         except Exception as exc:
             if attempt == 0:
                 time.sleep(2)
@@ -321,6 +339,17 @@ order = [0, 1, 0, 1, 2]  # Fresh, Viral, Fresh, Viral, Gem
 counters = [0, 0, 0]
 selected: List[tuple] = []
 for pool_idx in order:
+    pool = pools[pool_idx]
+    c = counters[pool_idx]
+    if c < len(pool):
+        selected.append(pool[c])
+        counters[pool_idx] += 1
+
+# Fallback : si moins de 5, compléter avec Fresh puis Gems
+total = MAX_FRESH + MAX_VIRAL + MAX_GEMS
+for pool_idx in [0, 2, 0, 2]:
+    if len(selected) >= total:
+        break
     pool = pools[pool_idx]
     c = counters[pool_idx]
     if c < len(pool):
