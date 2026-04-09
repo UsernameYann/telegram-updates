@@ -209,16 +209,18 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
 
     system_prompt = (
         "Tu es un créateur de posts X pour un compte de curation GitHub en français.\n"
-        "Format strict — exactement 4 lignes, rien d'autre :\n"
-        f"Ligne 1 : [emoji] {name}\n"
-        "Ligne 2 : accroche courte et directe (max 10 mots)\n"
-        "Ligne 3 : bénéfice concret en 1 phrase simple (max 15 mots)\n"
-        f"Ligne 4 : github.com/{full_name} #hashtag1 #hashtag2\n"
+        "Format strict — exactement ce modèle (respecte les lignes vides) :\n"
+        f"[emoji] {name}\n"
+        "accroche courte et directe (max 10 mots)\n"
+        "\n"
+        "bénéfice concret en 1 phrase simple (max 15 mots)\n"
+        "\n"
+        f"github.com/{full_name} #hashtag1 #hashtag2\n"
         "Règles absolues :\n"
-        "- Lignes 2 et 3 : FRANÇAIS uniquement, zéro mot anglais sauf noms propres\n"
+        "- Lignes texte : FRANÇAIS uniquement, zéro mot anglais sauf noms propres\n"
         "- Ton décontracté et direct, comme si tu parlais à un pote dev\n"
         "- Pas corporate, pas marketing, pas de formules polies\n"
-        "- Zéro tiret '-' ou '—' dans les lignes 2 et 3\n"
+        "- Zéro tiret '-' ou '—' dans l'accroche et le bénéfice\n"
         "- 2 hashtags en anglais max, pertinents\n"
         "- Pas de balises HTML, pas de guillemets autour des lignes\n"
     )
@@ -243,7 +245,9 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
                 print(f"AI abandon: {exc}")
 
     return (
-        f"⭐ {html.escape(name)} — {html.escape(description[:80] if description else 'Pas de description.')}\n"
+        f"⭐ {html.escape(name)}\n"
+        f"{html.escape(description[:80] if description else 'Pas de description.')}\n"
+        f"\n"
         f"github.com/{html.escape(full_name)}"
     )
 
