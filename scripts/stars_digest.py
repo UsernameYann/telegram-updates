@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Set
 
 import requests
 
-GH_TOKEN = os.environ["GH_TOKEN"]
+GH_TOKEN = os.environ["GH_TOKEN"]           # GITHUB_TOKEN — pour l'IA (models: read)
+STARS_TOKEN = os.environ.get("STARS_GH_TOKEN", GH_TOKEN)  # PAT — pour les starred repos
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-GH_USERNAME = os.environ.get("GH_USERNAME", "yanncarer")
 STATE_FILE = os.environ.get("STARS_STATE_FILE", "data/stars_state.json")
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
 REQUEST_TIMEOUT = 20
@@ -21,7 +21,7 @@ TELEGRAM_CHUNK = 3800
 MAX_SEEN_IDS = 500
 
 GH_HEADERS = {
-    "Authorization": f"Bearer {GH_TOKEN}",
+    "Authorization": f"Bearer {STARS_TOKEN}",
     "Accept": "application/vnd.github+json",
 }
 AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json"}

@@ -39,5 +39,5 @@ jobs:
 
       - name: GitHub stars digest
         env:
-          GH_TOKEN: ${{ secrets.STARS_GH_TOKEN }}
+          STARS_GH_TOKEN: ${{ secrets.STARS_GH_TOKEN }}
         run: python3 scripts/stars_digest.py
