@@ -116,8 +116,7 @@ def summarize_repo(repo_data: Dict) -> str:
     return (
         f"⭐ <b>{html.escape(full_name)}</b>\n"
         f"• {html.escape(description or 'Pas de description.')}\n"
-        f"• {language} — {stars} ⭐\n"
-        f"Verdict : ❓ — analyse IA indisponible"
+        f"• {language} — {stars} ⭐"
     )
 
 
