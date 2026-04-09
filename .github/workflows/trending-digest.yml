@@ -1,0 +1,44 @@
+name: 🔥 GitHub Trending Digest
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      hours_override:
+        description: 'Fenêtre de recherche en jours (ex: 14)'
+        required: false
+        default: '4'
+
+jobs:
+  trending:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      models: read
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DIGEST_MODEL: gpt-4o
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: pip install requests --quiet
+
+      - name: Restore trending state
+        uses: actions/cache@v4
+        with:
+          path: data/trending_seen.json
+          key: trending-state-${{ github.run_id }}
+          restore-keys: trending-state-
+
+      - name: GitHub trending digest
+        env:
+          TRENDING_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '4' }}
+        run: python3 scripts/trending_digest.py
