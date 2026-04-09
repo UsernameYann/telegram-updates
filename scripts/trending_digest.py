@@ -18,7 +18,7 @@ MAX_REPOS = 5
 REQUEST_TIMEOUT = 20
 STATE_FILE = "data/trending_seen.json"
 MAX_SEEN = 2000
-MAX_TOTAL_STARS = 10000  # exclure les repos déjà célèbres
+# Pas de cap sur les stars totales — la vélocité (stars/jour) fait le tri naturellement
 
 GH_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json"}
@@ -29,21 +29,21 @@ d1 = (now - timedelta(days=1)).strftime("%Y-%m-%d")   # hier
 d3 = (now - timedelta(days=3)).strftime("%Y-%m-%d")   # 3 jours
 d7 = (now - timedelta(days=7)).strftime("%Y-%m-%d")   # 1 semaine
 
-# Requêtes centrées sur la NOUVEAUTÉ + vélocité, pas sur les stars totales
-# stars:<10000 = exclure repos déjà connus
+# Requêtes centrées sur la NOUVEAUTÉ — created: empêche les vieux repos d'apparaître
+# La vélocité (stars/jour) fait le tri entre pépites et repos déjà connus
 QUERIES = [
     # Repos tout frais (1 jour) qui gagnent déjà des stars
-    f"created:>={d1} stars:>20 stars:<{MAX_TOTAL_STARS}",
+    f"created:>={d1} stars:>20",
     # Repos de 3 jours avec bonne traction
-    f"created:>={d3} stars:>80 stars:<{MAX_TOTAL_STARS}",
+    f"created:>={d3} stars:>80",
     # Repos AI/LLM de la semaine
-    f"topic:llm created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
-    f"topic:ai-agent created:>={d7} stars:>20 stars:<{MAX_TOTAL_STARS}",
-    f"topic:generative-ai created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
-    f"topic:rag created:>={d7} stars:>20 stars:<{MAX_TOTAL_STARS}",
-    f"topic:large-language-model created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
+    f"topic:llm created:>={d7} stars:>40",
+    f"topic:ai-agent created:>={d7} stars:>20",
+    f"topic:generative-ai created:>={d7} stars:>40",
+    f"topic:rag created:>={d7} stars:>20",
+    f"topic:large-language-model created:>={d7} stars:>40",
     # Général : créé cette semaine avec forte traction
-    f"created:>={d7} stars:>150 stars:<{MAX_TOTAL_STARS}",
+    f"created:>={d7} stars:>150",
 ]
 
 
