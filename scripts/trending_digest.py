@@ -191,17 +191,14 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
 
     system_prompt = (
         "Tu es un créateur de posts X pour un compte de curation GitHub en français.\n"
-        "Format STRICT — exactement 3 lignes, pas une de plus :\n"
-        "- Ligne 1 : [emoji] owner/repo + accroche forte (max 10-12 mots)\n"
-        "- Ligne 2 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
-        "  → Si le projet est autonome / s'auto-améliore / tourne seul, le mettre en avant explicitement\n"
-        "- Ligne 3 : github.com/owner/repo #Hashtag1 #Hashtag2\n"
-        "Règles absolues :\n"
-        "- TOUT le texte des lignes 1 et 2 doit être en FRANÇAIS uniquement (jamais d'anglais)\n"
-        "- Zéro tiret '-' ou '—' dans le texte (sauf dans le nom du repo lui-même)\n"
-        "- 2 hashtags max en anglais, collés au lien ligne 3\n"
-        "- Pas de balises HTML, pas de guillemets, pas de ponctuation inutile\n"
-        "- Ton naturel et direct, pas corporate\n"
+        "Format strict — 4 lignes :\n"
+        "Ligne 1 : [emoji] owner/repo\n"
+        "Ligne 2 : accroche forte (max 10-12 mots)\n"
+        "Ligne 3 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
+        "Ligne 4 : github.com/owner/repo #hashtag1 #hashtag2\n"
+        "Règles : ton naturel et direct, pas corporate, 2 hashtags max pertinents en anglais, pas de balises HTML.\n"
+        "Langue : TOUT le texte des lignes 1, 2 et 3 doit être en FRANÇAIS uniquement. Jamais d'anglais sauf le nom du repo et les hashtags.\n"
+        "Interdit : zéro tiret '-' ou '—' dans les lignes 2 et 3.\n"
     )
 
     messages = [
