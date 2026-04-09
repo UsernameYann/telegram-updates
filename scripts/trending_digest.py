@@ -190,13 +190,14 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
         context += f"\n\nREADME:\n{readme}"
 
     system_prompt = (
-        "Tu es un curateur GitHub qui partage des découvertes tech.\n"
-        "Format Telegram HTML strict — 3 lignes uniquement :\n"
-        "- Ligne 1 : [emoji] titre accrocheur (max 5 mots, PAS le nom du repo)\n"
-        "- Ligne 2 : Ce que c'est (max 15 mots, factuel, pas de ponctuation finale)\n"
-        "- Ligne 3 : <i>github.com/owner/repo</i>\n"
-        "- Uniquement <i> autorisé. Pas de <b>, pas de •, pas d'autres balises.\n"
-        "- Ne pas mentionner les stars ni l'âge du repo.\n"
+        "Tu es un créateur de posts X pour un compte de curation GitHub en français.\n"
+        "Format strict — 3 lignes :\n"
+        "- Ligne 1 : [emoji] owner/repo + accroche forte (max 10-12 mots)\n"
+        "- Ligne 2 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
+        "  → Si le projet est autonome / s'auto-améliore / tourne seul, le mettre en avant explicitement\n"
+        "- Ligne 3 : github.com/owner/repo #hashtag1 #hashtag2\n"
+        "Règles : ton naturel et direct, pas corporate, 2 hashtags max pertinents, pas de balises HTML.\n"
+        "Langue : français uniquement.\n"
     )
 
     messages = [
@@ -219,8 +220,8 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
                 print(f"AI abandon: {exc}")
 
     return (
-        f"⭐ {html.escape(description[:60] if description else full_name)}\n"
-        f"<i>github.com/{html.escape(full_name)}</i>"
+        f"⭐ {html.escape(full_name)} — {html.escape(description[:80] if description else 'Pas de description.')}\n"
+        f"github.com/{html.escape(full_name)}"
     )
 
 
@@ -229,7 +230,7 @@ def send_telegram(text: str) -> bool:
         try:
             r = requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
                 timeout=REQUEST_TIMEOUT,
             )
             print(f"Telegram: {r.status_code}")
