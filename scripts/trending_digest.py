@@ -192,12 +192,12 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
     system_prompt = (
         "Tu es un créateur de posts X pour un compte de curation GitHub en français.\n"
         "Format strict — 3 lignes :\n"
-        "- Ligne 1 : [emoji] owner/repo + accroche forte (max 10-12 mots)\n"
-        "- Ligne 2 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
-        "  → Si le projet est autonome / s'auto-améliore / tourne seul, le mettre en avant explicitement\n"
-        "- Ligne 3 : github.com/owner/repo #hashtag1 #hashtag2\n"
-        "Règles : ton naturel et direct, pas corporate, 2 hashtags max pertinents, pas de balises HTML.\n"
-        "Langue : français uniquement.\n"
+        "Ligne 1 : [emoji] owner/repo\n"
+        "Ligne 1 : accroche forte (max 10-12 mots)\n"
+        "Ligne 2 : Bénéfice concret en 1 phrase courte (max 15 mots)\n"
+        "Ligne 3 : github.com/owner/repo #hashtag1 #hashtag2\n"
+        "Règles : ton naturel et direct, pas corporate, 2 hashtags max pertinents en anglais, pas de balises HTML.\n"
+        "Langue : français pour le texte, anglais uniquement pour les hashtags.\n"
     )
 
     messages = [
