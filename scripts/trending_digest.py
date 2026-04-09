@@ -14,29 +14,63 @@ GH_TOKEN = os.environ["GH_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
-WINDOW_HOURS = int(os.getenv("TRENDING_WINDOW_HOURS", "4"))
 MAX_REPOS = 5
 REQUEST_TIMEOUT = 20
 STATE_FILE = "data/trending_seen.json"
-MAX_SEEN = 500  # max IDs à garder en mémoire
+MAX_SEEN = 2000
+MAX_TOTAL_STARS = 10000  # exclure les repos déjà célèbres
 
 GH_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json"}
 AI_URL = "https://models.inference.ai.azure.com/chat/completions"
 
-today = datetime.now().strftime("%d/%m/%Y")
-cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+now = datetime.now(timezone.utc)
+d1 = (now - timedelta(days=1)).strftime("%Y-%m-%d")   # hier
+d3 = (now - timedelta(days=3)).strftime("%Y-%m-%d")   # 3 jours
+d7 = (now - timedelta(days=7)).strftime("%Y-%m-%d")   # 1 semaine
 
-# Topics à surveiller (AI/LLM/agents + général trending)
+# Requêtes centrées sur la NOUVEAUTÉ + vélocité, pas sur les stars totales
+# stars:<10000 = exclure repos déjà connus
 QUERIES = [
-    f"topic:llm stars:>50 pushed:>={cutoff}",
-    f"topic:ai-agent stars:>30 pushed:>={cutoff}",
-    f"topic:generative-ai stars:>50 pushed:>={cutoff}",
-    f"topic:large-language-model stars:>50 pushed:>={cutoff}",
-    f"topic:rag stars:>30 pushed:>={cutoff}",
-    f"topic:machine-learning created:>={cutoff} stars:>100",
-    f"stars:>200 created:>={(datetime.now(timezone.utc) - timedelta(days=3)).strftime('%Y-%m-%d')}",
+    # Repos tout frais (1 jour) qui gagnent déjà des stars
+    f"created:>={d1} stars:>20 stars:<{MAX_TOTAL_STARS}",
+    # Repos de 3 jours avec bonne traction
+    f"created:>={d3} stars:>80 stars:<{MAX_TOTAL_STARS}",
+    # Repos AI/LLM de la semaine
+    f"topic:llm created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
+    f"topic:ai-agent created:>={d7} stars:>20 stars:<{MAX_TOTAL_STARS}",
+    f"topic:generative-ai created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
+    f"topic:rag created:>={d7} stars:>20 stars:<{MAX_TOTAL_STARS}",
+    f"topic:large-language-model created:>={d7} stars:>40 stars:<{MAX_TOTAL_STARS}",
+    # Général : créé cette semaine avec forte traction
+    f"created:>={d7} stars:>150 stars:<{MAX_TOTAL_STARS}",
 ]
+
+
+def velocity_score(repo: Dict) -> float:
+    """Stars par jour depuis la création — mesure la vélocité réelle."""
+    stars = repo.get("stargazers_count", 0)
+    created_at = repo.get("created_at", "")
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        days_old = max((now - created).total_seconds() / 86400, 0.5)
+        return stars / days_old
+    except Exception:
+        return float(stars)
+
+
+def days_old_label(repo: Dict) -> str:
+    """Retourne '2 jours', '5 heures', etc."""
+    created_at = repo.get("created_at", "")
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        delta = now - created
+        hours = int(delta.total_seconds() / 3600)
+        if hours < 24:
+            return f"{hours}h"
+        return f"{delta.days}j"
+    except Exception:
+        return "?"
 
 
 def load_seen() -> Set[int]:
@@ -64,10 +98,10 @@ def safe_get(url: str, params: Dict = None, retries: int = 2) -> Any:
             return None
         except requests.RequestException as exc:
             if attempt < retries:
-                print(f"GET {url} -> {exc} (retry {attempt + 1})")
+                print(f"Retry {attempt + 1}: {exc}")
                 time.sleep(2)
             else:
-                print(f"GET {url} -> abandon")
+                print(f"Abandon: {exc}")
     return None
 
 
@@ -81,7 +115,7 @@ def fetch_readme(owner: str, repo: str) -> str:
         return ""
 
 
-def ai_summarize(repo: Dict) -> str:
+def ai_summarize(repo: Dict, age: str, stars_per_day: float) -> str:
     full_name = repo.get("full_name", "?")
     description = repo.get("description") or ""
     language = repo.get("language") or "inconnu"
@@ -90,7 +124,13 @@ def ai_summarize(repo: Dict) -> str:
     owner, name = (full_name.split("/", 1) if "/" in full_name else ("?", full_name))
     readme = fetch_readme(owner, name)
 
-    context = f"Repo: {full_name}\nLanguage: {language}\nStars: {stars:,}\nDescription: {description}"
+    context = (
+        f"Repo: {full_name}\n"
+        f"Créé il y a: {age}\n"
+        f"Stars: {stars:,} (+{stars_per_day:.0f}/jour)\n"
+        f"Language: {language}\n"
+        f"Description: {description}"
+    )
     if topics:
         context += f"\nTopics: {topics}"
     if readme:
@@ -100,15 +140,16 @@ def ai_summarize(repo: Dict) -> str:
         {
             "role": "system",
             "content": (
-                "Tu es un curateur de repos GitHub populaires. Tu dois résumer un repo en français "
-                "de façon concise, accrocheuse, prête à poster sur X (Twitter).\n"
+                "Tu es un chasseur de pépites GitHub. Tu trouves des repos prometteurs AVANT qu'ils deviennent célèbres.\n"
+                "Ce repo est récent et gagne des stars rapidement — c'est une découverte à partager.\n"
                 "Format Telegram HTML strict :\n"
                 "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
-                "- Ligne 2 : • Ce que c'est en une phrase (max 18 mots)\n"
-                "- Ligne 3 : • Ce qui le rend unique/intéressant (max 18 mots)\n"
+                "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
+                "- Ligne 3 : • Pourquoi c'est intéressant/unique (max 18 mots)\n"
                 "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
                 "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
-                "- Style : direct, enthousiaste mais factuel\n"
+                "- Style : enthousiaste, comme si tu partageais une découverte à un ami dev\n"
+                "- Ne pas mentionner le nombre de stars\n"
             ),
         },
         {"role": "user", "content": context},
@@ -124,7 +165,6 @@ def ai_summarize(repo: Dict) -> str:
             print(f"AI {resp.status_code} for {full_name}")
         except Exception as exc:
             if attempt == 0:
-                print(f"AI error {exc}, retry...")
                 time.sleep(2)
             else:
                 print(f"AI abandon: {exc}")
@@ -132,7 +172,7 @@ def ai_summarize(repo: Dict) -> str:
     return (
         f"⭐ <b>{html.escape(full_name)}</b>\n"
         f"• {html.escape(description or 'Pas de description.')}\n"
-        f"• {language} — {stars:,} ⭐\n"
+        f"• {language} — {stars:,} ⭐ — {age}\n"
         f"🔗 <i>github.com/{html.escape(full_name)}</i>"
     )
 
@@ -142,8 +182,7 @@ def send_telegram(text: str) -> bool:
         try:
             r = requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML",
-                      "disable_web_page_preview": False},
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
                 timeout=REQUEST_TIMEOUT,
             )
             print(f"Telegram: {r.status_code}")
@@ -160,7 +199,6 @@ def send_telegram(text: str) -> bool:
 seen_ids = load_seen()
 print(f"IDs déjà vus: {len(seen_ids)}")
 
-# Collecte tous les repos depuis les différentes queries
 all_repos: Dict[int, Dict] = {}
 for query in QUERIES:
     data = safe_get("https://api.github.com/search/repositories", {
@@ -171,27 +209,31 @@ for query in QUERIES:
             rid = item.get("id")
             if rid and rid not in seen_ids and rid not in all_repos:
                 all_repos[rid] = item
-        time.sleep(1)  # respecter le rate limit GitHub Search
+    time.sleep(1)  # rate limit GitHub Search API
 
 if not all_repos:
-    print("Aucun nouveau repo trouvé.")
+    print("Aucune pépite trouvée.")
     sys.exit(0)
 
-# Tri par stars décroissant, on prend les MAX_REPOS meilleurs
-sorted_repos = sorted(all_repos.values(), key=lambda r: r.get("stargazers_count", 0), reverse=True)
+# Tri par vélocité (stars/jour) — pas par stars totales
+sorted_repos = sorted(all_repos.values(), key=velocity_score, reverse=True)
 selected = sorted_repos[:MAX_REPOS]
-print(f"Repos sélectionnés: {len(selected)}")
 
-# Envoi : 1 message par repo
+print(f"Pépites sélectionnées: {len(selected)}")
+for r in selected:
+    print(f"  {r['full_name']} — {r['stargazers_count']} ⭐ — vélocité: {velocity_score(r):.1f}/jour")
+
 sent = 0
 for repo in selected:
     full_name = repo.get("full_name", "?")
-    print(f"Traitement: {full_name}")
-    summary = ai_summarize(repo)
+    age = days_old_label(repo)
+    spd = velocity_score(repo)
+    print(f"Traitement: {full_name} ({age}, +{spd:.0f}⭐/jour)")
+    summary = ai_summarize(repo, age, spd)
     if send_telegram(summary):
         seen_ids.add(repo["id"])
         sent += 1
     time.sleep(1)
 
 save_seen(seen_ids)
-print(f"✅ {sent}/{len(selected)} envoyés")
+print(f"✅ {sent}/{len(selected)} pépites envoyées")
