@@ -3,6 +3,7 @@ import html
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
@@ -34,14 +35,20 @@ today = datetime.now().strftime("%d/%m/%Y")
 print(f"Checking stars since: {cutoff.isoformat()}")
 
 
-def safe_get(url: str, headers: Dict, default: Any = None) -> Any:
-    try:
-        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        if resp.status_code == 200:
-            return resp.json()
-        print(f"GET {url} -> {resp.status_code} {resp.text[:120]}")
-    except requests.RequestException as exc:
-        print(f"GET {url} -> {exc}")
+def safe_get(url: str, headers: Dict, default: Any = None, retries: int = 2) -> Any:
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            if resp.status_code == 200:
+                return resp.json()
+            print(f"GET {url} -> {resp.status_code} {resp.text[:120]}")
+            return default
+        except requests.RequestException as exc:
+            if attempt < retries:
+                print(f"GET {url} -> {exc} (retry {attempt + 1}/{retries})")
+                time.sleep(2)
+            else:
+                print(f"GET {url} -> {exc} (abandon)")
     return default
 
 
@@ -99,7 +106,15 @@ def summarize_repo(repo_data: Dict) -> str:
             return re.sub(r"[ \t]+", " ", text).strip()
         print(f"AI {resp.status_code} for {full_name}")
     except Exception as exc:
-        print(f"AI error for {full_name}: {exc}")
+        print(f"AI error for {full_name}: {exc} (retry 1/2)")
+        time.sleep(2)
+        try:
+            resp = requests.post(AI_URL, headers=AI_HEADERS, json=payload, timeout=REQUEST_TIMEOUT)
+            if resp.status_code == 200:
+                text = resp.json()["choices"][0]["message"]["content"].strip()
+                return re.sub(r"[ \t]+", " ", text).strip()
+        except Exception as exc2:
+            print(f"AI error for {full_name}: {exc2} (abandon)")
 
     return (
         f"⭐ <b>{html.escape(full_name)}</b>\n"
@@ -128,20 +143,26 @@ def split_for_telegram(message: str, max_len: int = TELEGRAM_CHUNK) -> List[str]
 
 def send_telegram(text: str) -> None:
     for chunk in split_for_telegram(text):
-        try:
-            r = requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML"},
-                timeout=REQUEST_TIMEOUT,
-            )
-            print(f"Telegram: {r.status_code}")
-        except requests.RequestException as exc:
-            print(f"Telegram error: {exc}")
+        for attempt in range(3):
+            try:
+                r = requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                    json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML"},
+                    timeout=REQUEST_TIMEOUT,
+                )
+                print(f"Telegram: {r.status_code}")
+                break
+            except requests.RequestException as exc:
+                if attempt < 2:
+                    print(f"Telegram error: {exc} (retry {attempt + 1}/2)")
+                    time.sleep(2)
+                else:
+                    print(f"Telegram error: {exc} (abandon)")
 
 
 # --- Main ---
 starred_raw = safe_get(
-    "https://api.github.com/user/starred?sort=created&direction=desc&per_page=30",
+    "https://api.github.com/user/starred?sort=created&direction=desc&per_page=100",
     GH_HEADERS,
     [],
 )

@@ -4,10 +4,16 @@ on:
   schedule:
     - cron: '0 6,14,22 * * *'
   workflow_dispatch:
+    inputs:
+      hours_override:
+        description: 'Fenêtre de temps en heures (ex: 48 pour tester)'
+        required: false
+        default: '8'
 
 jobs:
   digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       models: read
@@ -27,10 +33,11 @@ jobs:
 
       - name: SFL digest
         env:
-          DIGEST_WINDOW_HOURS: 8
+          DIGEST_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '8' }}
         run: python3 scripts/sfl_digest.py
 
       - name: GitHub stars digest
         env:
           STARS_GH_TOKEN: ${{ secrets.STARS_GH_TOKEN }}
+          STARS_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '8' }}
         run: python3 scripts/stars_digest.py
