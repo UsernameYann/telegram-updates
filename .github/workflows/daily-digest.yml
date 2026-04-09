@@ -25,13 +25,6 @@ jobs:
       - name: Install dependencies
         run: pip install requests --quiet
 
-      - name: Restore stars state
-        uses: actions/cache@v4
-        with:
-          path: data/stars_state.json
-          key: stars-state-${{ github.run_id }}
-          restore-keys: stars-state-
-
       - name: SFL digest
         env:
           DIGEST_WINDOW_HOURS: 8

@@ -1,33 +1,37 @@
 import base64
 import html
-import json
 import os
 import re
 import sys
-from datetime import datetime
-from typing import Any, Dict, List, Set
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List
 
 import requests
 
-GH_TOKEN = os.environ["GH_TOKEN"]           # GITHUB_TOKEN — pour l'IA (models: read)
-STARS_TOKEN = os.environ.get("STARS_GH_TOKEN", GH_TOKEN)  # PAT — pour les starred repos
+GH_TOKEN = os.environ["GH_TOKEN"]
+STARS_TOKEN = os.environ.get("STARS_GH_TOKEN", GH_TOKEN)
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-STATE_FILE = os.environ.get("STARS_STATE_FILE", "data/stars_state.json")
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
+STARS_WINDOW_HOURS = int(os.getenv("STARS_WINDOW_HOURS", "8"))
 REQUEST_TIMEOUT = 20
 MAX_STARS = 10
 TELEGRAM_CHUNK = 3800
-MAX_SEEN_IDS = 500
 
 GH_HEADERS = {
+    "Authorization": f"Bearer {STARS_TOKEN}",
+    "Accept": "application/vnd.github.star+json",
+}
+GH_HEADERS_README = {
     "Authorization": f"Bearer {STARS_TOKEN}",
     "Accept": "application/vnd.github+json",
 }
 AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json"}
 AI_URL = "https://models.inference.ai.azure.com/chat/completions"
 
+cutoff = datetime.now(timezone.utc) - timedelta(hours=STARS_WINDOW_HOURS)
 today = datetime.now().strftime("%d/%m/%Y")
+print(f"Checking stars since: {cutoff.isoformat()}")
 
 
 def safe_get(url: str, headers: Dict, default: Any = None) -> Any:
@@ -41,24 +45,8 @@ def safe_get(url: str, headers: Dict, default: Any = None) -> Any:
     return default
 
 
-def load_seen_ids() -> Set[int]:
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE) as f:
-                return set(json.load(f).get("seen_ids", []))
-        except Exception:
-            pass
-    return set()
-
-
-def save_seen_ids(seen_ids: Set[int]) -> None:
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    with open(STATE_FILE, "w") as f:
-        json.dump({"seen_ids": list(seen_ids)[-MAX_SEEN_IDS:]}, f)
-
-
 def fetch_readme(owner: str, repo: str) -> str:
-    data = safe_get(f"https://api.github.com/repos/{owner}/{repo}/readme", GH_HEADERS)
+    data = safe_get(f"https://api.github.com/repos/{owner}/{repo}/readme", GH_HEADERS_README)
     if not data or "content" not in data:
         return ""
     try:
@@ -93,10 +81,10 @@ def summarize_repo(repo_data: Dict) -> str:
                 "- 1 seul bloc, pas de markdown, HTML simple uniquement (<b>, <i>)\n"
                 "- Ligne titre : [emoji pertinent] <b>owner/repo</b> — titre court\n"
                 "- Ligne description : commence par '• ' (phrase courte, max 18 mots, ce que c'est)\n"
-                "- ligne detail optionnelle: commence par '• ' (max 18 mots)\n"
+                "- Ligne detail optionnelle : commence par '• ' (max 18 mots)\n"
                 "- Interdit de faire un paragraphe continu\n"
                 "- Si le README est insuffisant, rester factuel et ne pas inventer\n"
-                "- Style : direct, explicatif, utile pour décider si garder le favori\n"
+                "- Style : direct, explicatif, utile pour comprendre le projet\n"
             ),
         },
         {"role": "user", "content": context},
@@ -152,9 +140,6 @@ def send_telegram(text: str) -> None:
 
 
 # --- Main ---
-seen_ids = load_seen_ids()
-print(f"IDs déjà vus: {len(seen_ids)}")
-
 starred_raw = safe_get(
     "https://api.github.com/user/starred?sort=created&direction=desc&per_page=30",
     GH_HEADERS,
@@ -165,16 +150,23 @@ if not starred_raw:
     print("Aucun résultat de l'API starred.")
     sys.exit(0)
 
-# Nouveaux = repos pas encore dans l'état
-new_repos = [r for r in starred_raw if r.get("id") not in seen_ids]
+# Filtre par starred_at (comme SFL filtre par merged_at)
+new_repos: List[Dict] = []
+for item in starred_raw:
+    starred_at_str = item.get("starred_at", "")
+    repo_data = item.get("repo", item)
+    try:
+        starred_at = datetime.fromisoformat(starred_at_str.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        continue
+    if starred_at > cutoff:
+        new_repos.append(repo_data)
+
 new_repos = new_repos[:MAX_STARS]
-print(f"Nouveaux favoris: {len(new_repos)}")
+print(f"Favoris des {STARS_WINDOW_HOURS}h: {len(new_repos)}")
 
 if not new_repos:
     print("Aucun nouveau favori — rien envoyé.")
-    # Met à jour l'état avec les IDs actuels (au cas où l'état est vide)
-    all_ids = seen_ids | {r["id"] for r in starred_raw if "id" in r}
-    save_seen_ids(all_ids)
     sys.exit(0)
 
 summaries: List[str] = []
@@ -188,9 +180,4 @@ header = f"📌 <b>Nouveaux favoris GitHub — {today}</b> ({count} repo{'s' if 
 message = header + "\n\n".join(summaries)
 
 send_telegram(message)
-
-# Sauvegarde les IDs vus
-new_ids = {r["id"] for r in new_repos if "id" in r}
-save_seen_ids(seen_ids | new_ids)
-
 print("✅ Done")
