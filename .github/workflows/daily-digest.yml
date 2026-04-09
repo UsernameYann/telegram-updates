@@ -12,17 +12,32 @@ jobs:
       contents: read
       models: read
 
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DIGEST_MODEL: gpt-4o
+
     steps:
       - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: pip install requests --quiet
 
-      - name: Run digest
+      - name: Restore stars state
+        uses: actions/cache@v4
+        with:
+          path: data/stars_state.json
+          key: stars-state-${{ github.run_id }}
+          restore-keys: stars-state-
+
+      - name: SFL digest
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DIGEST_MODEL: gpt-4o
           DIGEST_WINDOW_HOURS: 8
-        run: python3 scripts/digest.py
+        run: python3 scripts/sfl_digest.py
+
+      - name: GitHub stars digest
+        env:
+          GH_USERNAME: yanncarer
+          STARS_WINDOW_HOURS: 8
+        run: python3 scripts/stars_digest.py

@@ -330,6 +330,10 @@ for pr in merged_prs:
     )
 
 # --- Message final ---
+if not digest_prs:
+    print(f"Aucune PR pertinente sur les {DIGEST_WINDOW_HOURS}h — rien envoyé.")
+    exit(0)
+
 message = ai_generate_digest(digest_prs)
 
 if len(message) > MAX_TOTAL_CHARS:
