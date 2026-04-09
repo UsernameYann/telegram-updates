@@ -166,32 +166,15 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
     if readme:
         context += f"\n\nREADME:\n{readme}"
 
-    if is_gem:
-        system_prompt = (
-            "Tu es un curateur GitHub qui déniche des projets méconnus mais excellents.\n"
-            "Ce repo existe depuis un moment mais mérite d'être (re)découvert.\n"
-            "Format Telegram HTML strict :\n"
-            "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
-            "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
-            "- Ligne 3 : • Pourquoi ça vaut le coup maintenant (max 18 mots)\n"
-            "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
-            "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
-            "- Style : comme si tu partageais un bon plan à un ami dev\n"
-            "- Ne pas mentionner le nombre de stars\n"
-        )
-    else:
-        system_prompt = (
-            "Tu es un chasseur de pépites GitHub. Tu trouves des repos prometteurs AVANT qu'ils deviennent célèbres.\n"
-            "Ce repo est récent et gagne des stars rapidement — c'est une découverte à partager.\n"
-            "Format Telegram HTML strict :\n"
-            "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
-            "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
-            "- Ligne 3 : • Pourquoi c'est intéressant/unique (max 18 mots)\n"
-            "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
-            "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
-            "- Style : enthousiaste, comme si tu partageais une découverte à un ami dev\n"
-            "- Ne pas mentionner le nombre de stars\n"
-        )
+    system_prompt = (
+        "Tu es un curateur GitHub qui partage des découvertes tech.\n"
+        "Format Telegram HTML strict — 3 lignes uniquement :\n"
+        "- Ligne 1 : [emoji] titre accrocheur (max 5 mots, PAS le nom du repo)\n"
+        "- Ligne 2 : Ce que c'est (max 15 mots, factuel, pas de ponctuation finale)\n"
+        "- Ligne 3 : <i>github.com/owner/repo</i>\n"
+        "- Uniquement <i> autorisé. Pas de <b>, pas de •, pas d'autres balises.\n"
+        "- Ne pas mentionner les stars ni l'âge du repo.\n"
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -213,10 +196,8 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
                 print(f"AI abandon: {exc}")
 
     return (
-        f"⭐ <b>{html.escape(full_name)}</b>\n"
-        f"• {html.escape(description or 'Pas de description.')}\n"
-        f"• {language} — {stars:,} ⭐ — {age}\n"
-        f"🔗 <i>github.com/{html.escape(full_name)}</i>"
+        f"⭐ {html.escape(description[:60] if description else full_name)}\n"
+        f"<i>github.com/{html.escape(full_name)}</i>"
     )
 
 
