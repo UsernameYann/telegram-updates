@@ -14,8 +14,9 @@ GH_TOKEN = os.environ["GH_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
-MAX_FRESH = 3   # Nouveaux repos à forte vélocité
-MAX_GEMS = 2    # Pépites oubliées / topics variés
+MAX_FRESH = 2   # Nouveaux repos à forte vélocité
+MAX_VIRAL = 2   # GitHub Trending du jour (toutes dates)
+MAX_GEMS = 1    # Pépite oubliée / topic varié
 REQUEST_TIMEOUT = 20
 STATE_FILE = "data/trending_seen.json"
 MAX_SEEN = 2000
@@ -116,6 +117,28 @@ def save_seen(seen: Set[int]) -> None:
     ids = list(seen)[-MAX_SEEN:]
     with open(STATE_FILE, "w") as f:
         json.dump(ids, f)
+
+
+def fetch_github_trending(since: str = "daily") -> List[str]:
+    """Scrape github.com/trending et retourne une liste de 'owner/repo' triée par stars aujourd'hui."""
+    url = f"https://github.com/trending?since={since}"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; trending-digest-bot/1.0)"}
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                print(f"Trending page: {resp.status_code}")
+                return []
+            # Extrait les liens /owner/repo dans les balises h2 de trending
+            matches = re.findall(r'class="h3 lh-condensed">\s*<a href="/([^/"]+/[^/"]+)"', resp.text)
+            print(f"Trending scraped: {len(matches)} repos")
+            return matches[:25]
+        except Exception as exc:
+            if attempt == 0:
+                time.sleep(2)
+            else:
+                print(f"Trending scrape abandon: {exc}")
+    return []
 
 
 def safe_get(url: str, params: Dict = None, retries: int = 2) -> Any:
@@ -223,6 +246,8 @@ def send_telegram(text: str) -> bool:
 seen_ids = load_seen()
 print(f"IDs déjà vus: {len(seen_ids)}")
 
+import random
+
 # Pool A — Nouveautés à forte vélocité
 fresh_repos: Dict[int, Dict] = {}
 for query in QUERIES_FRESH:
@@ -236,11 +261,23 @@ for query in QUERIES_FRESH:
                 fresh_repos[rid] = item
     time.sleep(1)
 
-# Pool B — Pépites oubliées / sujets variés
-import random
+# Pool B — GitHub Trending du jour (toutes dates confondues)
+viral_repos: Dict[int, Dict] = {}
+trending_slugs = fetch_github_trending(since="daily")
+for slug in trending_slugs:
+    if len(viral_repos) >= MAX_VIRAL * 5:
+        break
+    repo_data = safe_get(f"https://api.github.com/repos/{slug}")
+    if repo_data:
+        rid = repo_data.get("id")
+        if rid and rid not in seen_ids and rid not in fresh_repos and rid not in viral_repos:
+            viral_repos[rid] = repo_data
+    time.sleep(0.5)
+
+# Pool C — Pépites oubliées / sujets variés
 gem_repos: Dict[int, Dict] = {}
 gem_queries_shuffled = QUERIES_GEMS.copy()
-random.shuffle(gem_queries_shuffled)  # shuffle pour varier les topics à chaque run
+random.shuffle(gem_queries_shuffled)
 for query in gem_queries_shuffled:
     data = safe_get("https://api.github.com/search/repositories", {
         "q": query, "sort": "stars", "order": "desc", "per_page": 10
@@ -248,46 +285,53 @@ for query in gem_queries_shuffled:
     if data and "items" in data:
         for item in data["items"]:
             rid = item.get("id")
-            if rid and rid not in seen_ids and rid not in fresh_repos and rid not in gem_repos:
+            if rid and rid not in seen_ids and rid not in fresh_repos and rid not in viral_repos and rid not in gem_repos:
                 gem_repos[rid] = item
     time.sleep(1)
     if len(gem_repos) >= MAX_GEMS * 10:
-        break  # assez de candidats
+        break
 
 # Sélection finale
 sorted_fresh = sorted(fresh_repos.values(), key=velocity_score, reverse=True)[:MAX_FRESH]
-# Gems : tri par stars pour diversité, léger shuffle pour éviter toujours les mêmes topics
-sorted_gems = sorted(gem_repos.values(), key=lambda r: r.get("stargazers_count", 0))[:MAX_GEMS * 5]
-random.shuffle(sorted_gems)
-selected_gems = sorted_gems[:MAX_GEMS]
+# Viral : GitHub Trending trie déjà par stars du jour → on garde l'ordre
+sorted_viral = list(viral_repos.values())[:MAX_VIRAL]
+# Gems : shuffle pour varier les topics
+sorted_gems_pool = sorted(gem_repos.values(), key=lambda r: r.get("stargazers_count", 0))[:MAX_GEMS * 5]
+random.shuffle(sorted_gems_pool)
+selected_gems = sorted_gems_pool[:MAX_GEMS]
 
-print(f"Fresh trouvés: {len(fresh_repos)} → sélectionnés: {len(sorted_fresh)}")
-print(f"Gems trouvés: {len(gem_repos)} → sélectionnés: {len(selected_gems)}")
+print(f"Fresh: {len(fresh_repos)} trouvés → {len(sorted_fresh)} sélectionnés")
+print(f"Viral: {len(viral_repos)} trouvés → {len(sorted_viral)} sélectionnés")
+print(f"Gems:  {len(gem_repos)} trouvés → {len(selected_gems)} sélectionnés")
 
-if not sorted_fresh and not selected_gems:
+if not sorted_fresh and not sorted_viral and not selected_gems:
     print("Aucune pépite trouvée.")
     sys.exit(0)
 
-# Interleave : Fresh, Gem, Fresh, Gem, Fresh
+# Interleave : Fresh, Viral, Fresh, Viral, Gem
+CATEGORY_LABEL = {0: "🆕 Fresh", 1: "🔥 Viral", 2: "💎 Gem"}
+pools = [
+    [(r, "fresh") for r in sorted_fresh],
+    [(r, "viral") for r in sorted_viral],
+    [(r, "gem")   for r in selected_gems],
+]
+order = [0, 1, 0, 1, 2]  # Fresh, Viral, Fresh, Viral, Gem
+counters = [0, 0, 0]
 selected: List[tuple] = []
-fi, gi = 0, 0
-while len(selected) < MAX_FRESH + MAX_GEMS:
-    if fi < len(sorted_fresh):
-        selected.append((sorted_fresh[fi], False))
-        fi += 1
-    if gi < len(selected_gems) and len(selected) < MAX_FRESH + MAX_GEMS:
-        selected.append((selected_gems[gi], True))
-        gi += 1
-    if fi >= len(sorted_fresh) and gi >= len(selected_gems):
-        break
+for pool_idx in order:
+    pool = pools[pool_idx]
+    c = counters[pool_idx]
+    if c < len(pool):
+        selected.append(pool[c])
+        counters[pool_idx] += 1
 
 sent = 0
-for repo, is_gem in selected:
+for repo, category in selected:
     full_name = repo.get("full_name", "?")
     age = days_old_label(repo)
     spd = velocity_score(repo)
-    label = "💎 Gem" if is_gem else "🆕 Fresh"
-    print(f"[{label}] {full_name} ({age}, {repo.get('stargazers_count', 0)}⭐)")
+    is_gem = category == "gem"
+    print(f"[{category.upper()}] {full_name} ({age}, {repo.get('stargazers_count', 0)}⭐)")
     summary = ai_summarize(repo, age, spd, is_gem=is_gem)
     if send_telegram(summary):
         seen_ids.add(repo["id"])
