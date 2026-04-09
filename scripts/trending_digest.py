@@ -123,7 +123,6 @@ def fetch_github_trending(since: str = "daily") -> List[str]:
     """Scrape github.com/trending et retourne une liste de 'owner/repo' triée par stars aujourd'hui."""
     url = f"https://github.com/trending?since={since}"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; trending-digest-bot/1.0)"}
-    # Préfixes GitHub à exclure (pas des repos)
     excluded = {
         "trending", "sponsors", "apps", "features", "about", "login", "join",
         "marketplace", "topics", "collections", "orgs", "users", "settings",
@@ -137,7 +136,6 @@ def fetch_github_trending(since: str = "daily") -> List[str]:
             if resp.status_code != 200:
                 print(f"Trending page: {resp.status_code}")
                 return []
-            # Extrait tous les liens /owner/repo (format alphanum + tirets/points)
             raw = re.findall(r'href="/([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)"', resp.text)
             seen_slugs: set = set()
             results = []
@@ -208,21 +206,21 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = Fals
         context += f"\n\nREADME:\n{readme}"
 
     system_prompt = (
-        "Tu es un créateur de posts X pour un compte de curation GitHub IA/dev en français.\n"
-        "Ton : naturel, direct, comme si tu parlais à un pote dev. Pas corporate, pas marketing, pas de phrases trop polies.\n"
-        "Style : simple, concret, utile, un peu cash.\n\n"
-        "Format STRICT à respecter (exactement ces lignes, avec les sauts de ligne) :\n"
+        "Tu crées des posts X pour un compte de curation GitHub en français.\n"
+        "Ton : direct, décontracté, comme un pote dev. Zéro corporate, zéro marketing.\n\n"
+        "Format STRICT (respecte exactement les sauts de ligne) :\n"
         f"[emoji] {name}\n"
-        "Accroche forte et naturelle (max 14 mots, termine par un point '.')\n"
+        "Accroche courte et percutante. (max 14 mots)\n"
         "\n"
-        "1 phrase qui explique pourquoi c'est intéressant (max 18 mots, termine par un point '.')\n"
+        "Une phrase concrète sur ce que ça apporte. (max 18 mots)\n"
         "\n"
         f"github.com/{full_name} #hashtag1 #hashtag2\n\n"
-        "Règles absolues :\n"
-        "- Tout en français sauf les noms de repo, usernames et hashtags\n"
-        "- Aucun tiret '-' ou '—' dans l'accroche et la phrase d'explication\n"
-        "- Maximum 2 hashtags en anglais pertinents à la fin\n"
-        "- Pas de guillemets, pas de *bold*, pas de HTML\n"
+        "Règles :\n"
+        "- Français uniquement sauf noms de repo et hashtags\n"
+        "- Zéro tiret '-' ou '—'\n"
+        "- 2 hashtags en anglais max, pertinents\n"
+        "- Pas de guillemets, bold, ou HTML\n"
+        "- Chaque phrase se termine par un point '.'\n"
     )
 
     messages = [
@@ -321,9 +319,7 @@ for query in gem_queries_shuffled:
 
 # Sélection finale
 sorted_fresh = sorted(fresh_repos.values(), key=velocity_score, reverse=True)[:MAX_FRESH]
-# Viral : GitHub Trending trie déjà par stars du jour → on garde l'ordre
 sorted_viral = list(viral_repos.values())[:MAX_VIRAL]
-# Gems : shuffle pour varier les topics
 sorted_gems_pool = sorted(gem_repos.values(), key=lambda r: r.get("stargazers_count", 0))[:MAX_GEMS * 5]
 random.shuffle(sorted_gems_pool)
 selected_gems = sorted_gems_pool[:MAX_GEMS]
@@ -337,13 +333,12 @@ if not sorted_fresh and not sorted_viral and not selected_gems:
     sys.exit(0)
 
 # Interleave : Fresh, Viral, Fresh, Viral, Gem
-CATEGORY_LABEL = {0: "🆕 Fresh", 1: "🔥 Viral", 2: "💎 Gem"}
 pools = [
     [(r, "fresh") for r in sorted_fresh],
     [(r, "viral") for r in sorted_viral],
     [(r, "gem")   for r in selected_gems],
 ]
-order = [0, 1, 0, 1, 2]  # Fresh, Viral, Fresh, Viral, Gem
+order = [0, 1, 0, 1, 2]
 counters = [0, 0, 0]
 selected: List[tuple] = []
 for pool_idx in order:
