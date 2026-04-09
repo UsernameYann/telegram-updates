@@ -14,36 +14,66 @@ GH_TOKEN = os.environ["GH_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
-MAX_REPOS = 5
+MAX_FRESH = 3   # Nouveaux repos à forte vélocité
+MAX_GEMS = 2    # Pépites oubliées / topics variés
 REQUEST_TIMEOUT = 20
 STATE_FILE = "data/trending_seen.json"
 MAX_SEEN = 2000
-# Pas de cap sur les stars totales — la vélocité (stars/jour) fait le tri naturellement
 
 GH_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json"}
 AI_URL = "https://models.inference.ai.azure.com/chat/completions"
 
 now = datetime.now(timezone.utc)
-d1 = (now - timedelta(days=1)).strftime("%Y-%m-%d")   # hier
-d3 = (now - timedelta(days=3)).strftime("%Y-%m-%d")   # 3 jours
-d7 = (now - timedelta(days=7)).strftime("%Y-%m-%d")   # 1 semaine
+d1  = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+d3  = (now - timedelta(days=3)).strftime("%Y-%m-%d")
+d7  = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+d30 = (now - timedelta(days=30)).strftime("%Y-%m-%d")
 
-# Requêtes centrées sur la NOUVEAUTÉ — created: empêche les vieux repos d'apparaître
-# La vélocité (stars/jour) fait le tri entre pépites et repos déjà connus
-QUERIES = [
-    # Repos tout frais (1 jour) qui gagnent déjà des stars
+# Pool A — Nouveautés à fort momentum (triées par vélocité)
+QUERIES_FRESH = [
     f"created:>={d1} stars:>20",
-    # Repos de 3 jours avec bonne traction
     f"created:>={d3} stars:>80",
-    # Repos AI/LLM de la semaine
     f"topic:llm created:>={d7} stars:>40",
     f"topic:ai-agent created:>={d7} stars:>20",
     f"topic:generative-ai created:>={d7} stars:>40",
     f"topic:rag created:>={d7} stars:>20",
     f"topic:large-language-model created:>={d7} stars:>40",
-    # Général : créé cette semaine avec forte traction
     f"created:>={d7} stars:>150",
+]
+
+# Pool B — Pépites oubliées / projets méconnus / sujets variés
+# Cap à 60k stars pour éviter les incontournables (React, VS Code…)
+# pushed:>=d30 → encore actifs
+QUERIES_GEMS = [
+    # Jeux & gamedev
+    f"topic:game stars:300..60000 pushed:>={d30}",
+    f"topic:game-engine stars:200..40000 pushed:>={d30}",
+    f"topic:pixel-art stars:100..20000 pushed:>={d30}",
+    # Terminal, CLI, TUI
+    f"topic:cli stars:300..60000 pushed:>={d30}",
+    f"topic:tui stars:200..40000 pushed:>={d30}",
+    f"topic:terminal stars:300..50000 pushed:>={d30}",
+    # Self-hosted / homelabs
+    f"topic:self-hosted stars:500..60000 pushed:>={d30}",
+    f"topic:homelab stars:200..30000 pushed:>={d30}",
+    # Dev tools / productivité
+    f"topic:developer-tools stars:300..60000 pushed:>={d30}",
+    f"topic:productivity stars:300..50000 pushed:>={d30}",
+    # Langages tendance
+    f"topic:rust stars:500..60000 pushed:>={d30}",
+    f"topic:golang stars:300..60000 pushed:>={d30}",
+    f"topic:zig stars:100..20000 pushed:>={d30}",
+    # Créatif / audio / art
+    f"topic:creative-coding stars:200..30000 pushed:>={d30}",
+    f"topic:music stars:200..30000 pushed:>={d30}",
+    f"topic:animation stars:200..30000 pushed:>={d30}",
+    # Sécurité / hacking éthique
+    f"topic:security stars:500..60000 pushed:>={d30}",
+    f"topic:hacking stars:300..40000 pushed:>={d30}",
+    # Robotique / maker
+    f"topic:robotics stars:200..30000 pushed:>={d30}",
+    f"topic:arduino stars:200..30000 pushed:>={d30}",
 ]
 
 
@@ -115,7 +145,7 @@ def fetch_readme(owner: str, repo: str) -> str:
         return ""
 
 
-def ai_summarize(repo: Dict, age: str, stars_per_day: float) -> str:
+def ai_summarize(repo: Dict, age: str, stars_per_day: float, is_gem: bool = False) -> str:
     full_name = repo.get("full_name", "?")
     description = repo.get("description") or ""
     language = repo.get("language") or "inconnu"
@@ -126,8 +156,8 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float) -> str:
 
     context = (
         f"Repo: {full_name}\n"
-        f"Créé il y a: {age}\n"
-        f"Stars: {stars:,} (+{stars_per_day:.0f}/jour)\n"
+        f"Âge: {age}\n"
+        f"Stars: {stars:,}\n"
         f"Language: {language}\n"
         f"Description: {description}"
     )
@@ -136,22 +166,35 @@ def ai_summarize(repo: Dict, age: str, stars_per_day: float) -> str:
     if readme:
         context += f"\n\nREADME:\n{readme}"
 
+    if is_gem:
+        system_prompt = (
+            "Tu es un curateur GitHub qui déniche des projets méconnus mais excellents.\n"
+            "Ce repo existe depuis un moment mais mérite d'être (re)découvert.\n"
+            "Format Telegram HTML strict :\n"
+            "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
+            "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
+            "- Ligne 3 : • Pourquoi ça vaut le coup maintenant (max 18 mots)\n"
+            "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
+            "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
+            "- Style : comme si tu partageais un bon plan à un ami dev\n"
+            "- Ne pas mentionner le nombre de stars\n"
+        )
+    else:
+        system_prompt = (
+            "Tu es un chasseur de pépites GitHub. Tu trouves des repos prometteurs AVANT qu'ils deviennent célèbres.\n"
+            "Ce repo est récent et gagne des stars rapidement — c'est une découverte à partager.\n"
+            "Format Telegram HTML strict :\n"
+            "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
+            "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
+            "- Ligne 3 : • Pourquoi c'est intéressant/unique (max 18 mots)\n"
+            "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
+            "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
+            "- Style : enthousiaste, comme si tu partageais une découverte à un ami dev\n"
+            "- Ne pas mentionner le nombre de stars\n"
+        )
+
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "Tu es un chasseur de pépites GitHub. Tu trouves des repos prometteurs AVANT qu'ils deviennent célèbres.\n"
-                "Ce repo est récent et gagne des stars rapidement — c'est une découverte à partager.\n"
-                "Format Telegram HTML strict :\n"
-                "- Ligne 1 : [emoji] <b>owner/repo</b> — titre accrocheur (max 10 mots)\n"
-                "- Ligne 2 : • Ce que c'est (max 18 mots, factuel)\n"
-                "- Ligne 3 : • Pourquoi c'est intéressant/unique (max 18 mots)\n"
-                "- Ligne 4 : 🔗 <i>github.com/owner/repo</i>\n"
-                "- Pas de markdown, HTML simple uniquement (<b>, <i>)\n"
-                "- Style : enthousiaste, comme si tu partageais une découverte à un ami dev\n"
-                "- Ne pas mentionner le nombre de stars\n"
-            ),
-        },
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": context},
     ]
     payload = {"model": MODEL_NAME, "messages": messages, "max_tokens": 200, "temperature": 0.3}
@@ -199,41 +242,76 @@ def send_telegram(text: str) -> bool:
 seen_ids = load_seen()
 print(f"IDs déjà vus: {len(seen_ids)}")
 
-all_repos: Dict[int, Dict] = {}
-for query in QUERIES:
+# Pool A — Nouveautés à forte vélocité
+fresh_repos: Dict[int, Dict] = {}
+for query in QUERIES_FRESH:
     data = safe_get("https://api.github.com/search/repositories", {
         "q": query, "sort": "stars", "order": "desc", "per_page": 20
     })
     if data and "items" in data:
         for item in data["items"]:
             rid = item.get("id")
-            if rid and rid not in seen_ids and rid not in all_repos:
-                all_repos[rid] = item
-    time.sleep(1)  # rate limit GitHub Search API
+            if rid and rid not in seen_ids and rid not in fresh_repos:
+                fresh_repos[rid] = item
+    time.sleep(1)
 
-if not all_repos:
+# Pool B — Pépites oubliées / sujets variés
+import random
+gem_repos: Dict[int, Dict] = {}
+gem_queries_shuffled = QUERIES_GEMS.copy()
+random.shuffle(gem_queries_shuffled)  # shuffle pour varier les topics à chaque run
+for query in gem_queries_shuffled:
+    data = safe_get("https://api.github.com/search/repositories", {
+        "q": query, "sort": "stars", "order": "desc", "per_page": 10
+    })
+    if data and "items" in data:
+        for item in data["items"]:
+            rid = item.get("id")
+            if rid and rid not in seen_ids and rid not in fresh_repos and rid not in gem_repos:
+                gem_repos[rid] = item
+    time.sleep(1)
+    if len(gem_repos) >= MAX_GEMS * 10:
+        break  # assez de candidats
+
+# Sélection finale
+sorted_fresh = sorted(fresh_repos.values(), key=velocity_score, reverse=True)[:MAX_FRESH]
+# Gems : tri par stars pour diversité, léger shuffle pour éviter toujours les mêmes topics
+sorted_gems = sorted(gem_repos.values(), key=lambda r: r.get("stargazers_count", 0))[:MAX_GEMS * 5]
+random.shuffle(sorted_gems)
+selected_gems = sorted_gems[:MAX_GEMS]
+
+print(f"Fresh trouvés: {len(fresh_repos)} → sélectionnés: {len(sorted_fresh)}")
+print(f"Gems trouvés: {len(gem_repos)} → sélectionnés: {len(selected_gems)}")
+
+if not sorted_fresh and not selected_gems:
     print("Aucune pépite trouvée.")
     sys.exit(0)
 
-# Tri par vélocité (stars/jour) — pas par stars totales
-sorted_repos = sorted(all_repos.values(), key=velocity_score, reverse=True)
-selected = sorted_repos[:MAX_REPOS]
-
-print(f"Pépites sélectionnées: {len(selected)}")
-for r in selected:
-    print(f"  {r['full_name']} — {r['stargazers_count']} ⭐ — vélocité: {velocity_score(r):.1f}/jour")
+# Interleave : Fresh, Gem, Fresh, Gem, Fresh
+selected: List[tuple] = []
+fi, gi = 0, 0
+while len(selected) < MAX_FRESH + MAX_GEMS:
+    if fi < len(sorted_fresh):
+        selected.append((sorted_fresh[fi], False))
+        fi += 1
+    if gi < len(selected_gems) and len(selected) < MAX_FRESH + MAX_GEMS:
+        selected.append((selected_gems[gi], True))
+        gi += 1
+    if fi >= len(sorted_fresh) and gi >= len(selected_gems):
+        break
 
 sent = 0
-for repo in selected:
+for repo, is_gem in selected:
     full_name = repo.get("full_name", "?")
     age = days_old_label(repo)
     spd = velocity_score(repo)
-    print(f"Traitement: {full_name} ({age}, +{spd:.0f}⭐/jour)")
-    summary = ai_summarize(repo, age, spd)
+    label = "💎 Gem" if is_gem else "🆕 Fresh"
+    print(f"[{label}] {full_name} ({age}, {repo.get('stargazers_count', 0)}⭐)")
+    summary = ai_summarize(repo, age, spd, is_gem=is_gem)
     if send_telegram(summary):
         seen_ids.add(repo["id"])
         sent += 1
     time.sleep(1)
 
 save_seen(seen_ids)
-print(f"✅ {sent}/{len(selected)} pépites envoyées")
+print(f"✅ {sent}/{len(selected)} repos envoyés")
