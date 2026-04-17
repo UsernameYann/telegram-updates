@@ -2,7 +2,7 @@ name: 🔥 GitHub Trending Digest
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
       hours_override:
