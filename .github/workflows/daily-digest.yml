@@ -9,10 +9,6 @@ on:
         description: 'Fenêtre de temps en heures (ex: 48 pour tester)'
         required: false
         default: '24'
-      max_releases:
-        description: 'Nombre max de releases a analyser (ex: 5)'
-        required: false
-        default: '3'
 
 jobs:
   digest:
@@ -55,5 +51,5 @@ jobs:
 
       - name: SFL release digest
         env:
-          SFL_RELEASE_MAX: ${{ github.event.inputs.max_releases || '3' }}
+          SFL_RELEASE_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '24' }}
         run: python3 scripts/sfl_release_digest.py

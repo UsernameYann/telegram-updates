@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
@@ -14,7 +15,9 @@ MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
 
 REQUEST_TIMEOUT = 20
 REPO = os.getenv("SFL_REPO", "sunflower-land/sunflower-land")
-MAX_RELEASES = max(1, int(os.getenv("SFL_RELEASE_MAX", "3")))
+RELEASE_WINDOW_HOURS = max(1, int(os.getenv("SFL_RELEASE_WINDOW_HOURS", "24")))
+RELEASES_PER_PAGE = 100
+MAX_RELEASE_PAGES = max(1, int(os.getenv("SFL_RELEASE_MAX_PAGES", "10")))
 MAX_PRS_PER_RELEASE = max(1, int(os.getenv("SFL_RELEASE_PRS", "12")))
 MAX_X_POSTS = max(1, int(os.getenv("SFL_X_MAX_POSTS", "3")))
 TELEGRAM_CHUNK = 3800
@@ -199,9 +202,9 @@ def build_fallback_report(release: Dict[str, Any], analyzed: List[Dict[str, Any]
     ]
     for pr in interesting[:MAX_X_POSTS]:
         lines.append(f"• <b>#{pr['number']}</b> {html.escape(pr['title'])}")
-        lines.append(f"  Score: {pr['score']} | Pourquoi: {html.escape('; '.join(pr['reasons'][:2]) or 'signal utile')}.")
+        lines.append(f"  • {html.escape('; '.join(pr['reasons'][:2]) or 'signal utile')}.")
     if not interesting:
-        lines.append("Aucune PR vraiment interessante aujourd'hui pour un post X.")
+        lines.append("Aucune PR vraiment interessante dans cette release.")
     return "\n".join(lines).strip()
 
 
@@ -330,15 +333,56 @@ def fetch_pr_details(pr_number: int) -> Optional[Dict[str, Any]]:
     }
 
 
+def parse_iso_datetime(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def fetch_recent_releases(window_hours: int) -> List[Dict[str, Any]]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    recent: List[Dict[str, Any]] = []
+
+    for page in range(1, MAX_RELEASE_PAGES + 1):
+        batch = safe_get(
+            f"https://api.github.com/repos/{REPO}/releases",
+            [],
+            params={"per_page": RELEASES_PER_PAGE, "page": page},
+        )
+        if not isinstance(batch, list) or not batch:
+            break
+
+        stop_scan = False
+        for release in batch:
+            published_at = str(release.get("published_at") or release.get("created_at") or "")
+            published_dt = parse_iso_datetime(published_at)
+            if not published_dt:
+                continue
+
+            if published_dt >= cutoff:
+                recent.append(release)
+            else:
+                stop_scan = True
+                break
+
+        if stop_scan:
+            break
+
+        # Petite pause pour rester poli avec l'API GitHub.
+        time.sleep(0.2)
+
+    return recent
+
+
 def main() -> None:
     seen = load_seen()
-    releases = safe_get(
-        f"https://api.github.com/repos/{REPO}/releases",
-        [],
-        params={"per_page": MAX_RELEASES},
-    )
-    if not isinstance(releases, list) or not releases:
-        print("Aucune release disponible.")
+    releases = fetch_recent_releases(RELEASE_WINDOW_HOURS)
+    print(f"Fenetre release: {RELEASE_WINDOW_HOURS}h | releases trouvees: {len(releases)}")
+    if not releases:
+        print(f"Aucune release sur les dernieres {RELEASE_WINDOW_HOURS}h.")
         return
 
     to_process = [r for r in releases if str(r.get("tag_name") or "") not in seen]
