@@ -233,17 +233,14 @@ def build_ai_report(release: Dict[str, Any], analyzed: List[Dict[str, Any]], int
             "role": "system",
             "content": (
                 "Tu es un analyste produit/jeu. Tu dois resumer une release GitHub de Sunflower Land en francais.\n"
-                "Objectif: aider a publier sur X uniquement les updates vraiment interessantes.\n"
                 "Format Telegram HTML strict (pas de markdown):\n"
                 "1) Ligne titre: 🚀 <b>Release {tag}</b> — nom\n"
                 "2) Ligne resume court (1 phrase)\n"
-                "3) Section 'PR interessantes pour X'\n"
-                "4) Pour chaque PR interessante (max 3):\n"
+                "3) Section 'PR interessantes'\n"
+                "4) Pour chaque PR interessante :\n"
                 "   - <b>#numero titre</b>\n"
                 "   - • ce qui change concretement (max 18 mots)\n"
                 "   - • impact joueur (max 18 mots)\n"
-                "   - • pourquoi c'est publiable sur X (max 14 mots)\n"
-                "5) Section 'Post X proposes' avec 1 a 3 posts FR (max 240 caracteres chacun)\n"
                 "6) Si rien d'interessant, le dire explicitement\n"
                 "Interdit d'inventer. Utilise seulement les preuves fournies."
             ),
