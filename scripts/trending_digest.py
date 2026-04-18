@@ -14,6 +14,7 @@ GH_TOKEN = os.environ["GH_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MODEL_NAME = os.getenv("DIGEST_MODEL", "gpt-4o")
+TRENDING_WINDOW_HOURS = max(1, int(os.getenv("TRENDING_WINDOW_HOURS", "24")))
 MAX_FRESH = 2   # Nouveaux repos à forte vélocité
 MAX_VIRAL = 2   # GitHub Trending du jour (toutes dates)
 MAX_GEMS = 1    # Pépite oubliée / topic varié
@@ -26,7 +27,7 @@ AI_HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "applicatio
 AI_URL = "https://models.inference.ai.azure.com/chat/completions"
 
 now = datetime.now(timezone.utc)
-d1  = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+d1  = (now - timedelta(hours=TRENDING_WINDOW_HOURS)).strftime("%Y-%m-%d")
 d3  = (now - timedelta(days=3)).strftime("%Y-%m-%d")
 d7  = (now - timedelta(days=7)).strftime("%Y-%m-%d")
 d30 = (now - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -271,6 +272,7 @@ def send_telegram(text: str) -> bool:
 # --- Main ---
 seen_ids = load_seen()
 print(f"IDs déjà vus: {len(seen_ids)}")
+print(f"Fenêtre trending: {TRENDING_WINDOW_HOURS}h")
 
 import random
 

@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       hours_override:
-        description: 'Fenêtre de recherche en jours (ex: 14)'
+        description: 'Fenêtre de recherche en heures (ex: 48 pour tester)'
         required: false
-        default: '4'
+        default: '24'
 
 jobs:
   trending:
@@ -40,5 +40,5 @@ jobs:
 
       - name: GitHub trending digest
         env:
-          TRENDING_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '4' }}
+          TRENDING_WINDOW_HOURS: ${{ github.event.inputs.hours_override || '24' }}
         run: python3 scripts/trending_digest.py
